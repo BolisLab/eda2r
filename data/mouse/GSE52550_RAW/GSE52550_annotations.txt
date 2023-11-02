@@ -1,0 +1,13 @@
+ID	SHORT_ID	Accession	Filename	Source name	Tissue	Genotype	AGE
+GSM1269619_BS2011051053.CEL	YOUNG_WT_1	GSM1269619	BS2011051053	Gastrocnemius muscle mRNA from young (10 week old) wild-type mice	Gastrocnemius muscle	WT	YOUNG
+GSM1269620_BS2011051054_2.CEL	YOUNG_WT_2	GSM1269620	BS2011051054_2	Gastrocnemius muscle mRNA from young (10 week old) wild-type mice	Gastrocnemius muscle	WT	YOUNG
+GSM1269621_BS2011051055.CEL	YOUNG_WT_3	GSM1269621	BS2011051055	Gastrocnemius muscle mRNA from young (10 week old) wild-type mice	Gastrocnemius muscle	WT	YOUNG
+GSM1269622_BS2011051056.CEL	YOUNG_KO_1	GSM1269622	BS2011051056	Gastrocnemius muscle mRNA from young (10 week old) knock-out mice	Gastrocnemius muscle	KO	YOUNG
+GSM1269623_BS2011051057.CEL	YOUNG_KO_2	GSM1269623	BS2011051057	Gastrocnemius muscle mRNA from young (10 week old) knock-out mice	Gastrocnemius muscle	KO	YOUNG
+GSM1269624_BS2011051058.CEL	YOUNG_KO_3	GSM1269624	BS2011051058	Gastrocnemius muscle mRNA from young (10 week old) knock-out mice	Gastrocnemius muscle	KO	YOUNG
+GSM1269625_BS2011051059.CEL	OLD_WT_1	GSM1269625	BS2011051059	Gastrocnemius muscle mRNA from old (24 month old) wild-type mice	Gastrocnemius muscle	WT	OLD
+GSM1269626_BS2011051060.CEL	OLD_WT_2	GSM1269626	BS2011051060	Gastrocnemius muscle mRNA from old (24 month old) wild-type mice	Gastrocnemius muscle	WT	OLD
+GSM1269627_BS2011051061.CEL	OLD_WT_3	GSM1269627	BS2011051061	Gastrocnemius muscle mRNA from old (24 month old) wild-type mice	Gastrocnemius muscle	WT	OLD
+GSM1269628_BS2011051062.CEL	OLD_KO_1	GSM1269628	BS2011051062	Gastrocnemius muscle mRNA from old (24 month old) knock-out mice	Gastrocnemius muscle	KO	OLD
+GSM1269629_BS2011051063.CEL	OLD_KO_2	GSM1269629	BS2011051063	Gastrocnemius muscle mRNA from old (24 month old) knock-out mice	Gastrocnemius muscle	KO	OLD
+GSM1269630_BS2011051064.CEL	OLD_KO_3	GSM1269630	BS2011051064	Gastrocnemius muscle mRNA from old (24 month old) knock-out mice	Gastrocnemius muscle	KO	OLD
