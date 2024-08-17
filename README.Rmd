@@ -1,7 +1,7 @@
 ---
 title: "README"
 author: "BOLIS M"
-date: "2023-11-02"
+date: "2023-08-13"
 output: github_document
 ---
 
@@ -12,14 +12,14 @@ knitr::opts_chunk$set(echo = TRUE)
 
 ## Aditional information
 
-This R Markdown document contains code to reproduce the analyses performed in our manuscript entitled **Increase of Ectodysplasin-A2-Receptor EDA2R is a ubiquitous aging-related transcriptional hallmark** from *Barbera et al*.
+This R Markdown document contains code to reproduce the analyses performed in our manuscript entitled **Increase of Ectodysplasin-A2-Receptor EDA2R in Aging: A Ubiquitous Hallmark and Mediator of Parainflammatory Responses** from *Barbera et al*.
 
 ### <br>
 
 ### Loading required libraries
 
 ```{r libraries, echo=TRUE, results='hide', message = FALSE}
-neededlibraries = c("tibble", "ggsankey", "ggplot2", "ggrepel", "grid", "CePa", "DESeq2", "edgeR", "limma", "org.Hs.eg.db", "org.Mm.eg.db", "org.Rn.eg.db", "gghalves", "gcrma", "GEOquery", "umap")
+neededlibraries = c("tibble", "ggsankey", "ggplot2", "ggrepel", "grid", "CePa", "DESeq2", "edgeR", "limma", "org.Hs.eg.db", "org.Mm.eg.db", "org.Rn.eg.db", "gghalves", "gcrma", "GEOquery", "umap", "ggpubr", "matrixStats", "dplyr", "fmsb", "tidyverse")
 lapply(neededlibraries, require, character.only = TRUE)
 ```
 
@@ -277,7 +277,7 @@ adipose_sp$qvalue = p.adjust(adipose_sp$pvalue, method = 'fdr')
 
 ##### <br>
 
-##### MonteCarlo simulations (adipose tissue)
+##### Permutations (adipose tissue)
 
 Permuted p-values are computed for Pearson's correlations using n = 100 simulations
 
@@ -313,9 +313,159 @@ All the above examples are for adipose tissue. You can find gene-expression, sam
 
 <br>
 
-### Animal models
+### Human (GTEX)
 
 #### Correlations between gene expression and age
+```{r hs_step1, echo=TRUE, warning = FALSE, message = FALSE}
+
+# Set the directory path where the .RData files are stored
+data_path <- "./data/human/correlations/"
+
+# List of tissues
+tissues <- c("adipose", "adrenal", "brain", "breast", "colon", "esophagus", 
+             "heart", "kidney", "liver", "lung", "muscle", "nerve", "ovary", 
+             "pancreas", "pituitary", "prostate", "skin", "smallint", 
+             "spleen", "stomach", "testis", "thyroid", "uterus", "vagina", 
+             "vessel")
+
+# Load the data and create the COR object
+COR <- lapply(tissues, function(tissue) {
+  load(file.path(data_path, paste0(tissue, ".RData")))
+  get(tissue)
+})
+
+# Use the row names from the first tissue (adipose) as the reference
+reference_rownames <- rownames(COR[[1]])
+
+# Reorder the rows in all matrices based on the reference rownames
+COR <- lapply(COR, function(matrix) {
+  matrix[reference_rownames, , drop = FALSE]
+})
+names(COR) <- tissues
+
+# Create the data frame by extracting the 'coef' column from each element of COR
+df <- data.frame(
+  row.names = rownames(COR$adipose),
+  lapply(COR, function(x) x$coef)
+)
+
+# Rename the columns of the data frame to match the tissue names in uppercase
+colnames(df) <- toupper(names(COR))
+
+# Load tidyverse package for pivot_longer function
+library(tidyverse)
+# Convert the data frame to long format using pivot_longer
+bplot <- df %>%
+  rownames_to_column(var = "GENE") %>%  # Convert row names to a column
+  pivot_longer(cols = -GENE,            # Exclude the GENE column from pivoting
+               names_to = "TISSUE", 
+               values_to = "GENES")
+
+
+# Filter to get the specific gene value for "ENSG00000131080"
+eda2r_gene <- bplot %>% filter(GENE == "ENSG00000131080")
+edar_gene <-  bplot %>% filter(GENE == "ENSG00000135960")
+eda_gene <-  bplot %>% filter(GENE == "ENSG00000158813")
+
+
+# Create the boxplot with the additional highlighted points
+p_gene <- ggplot(bplot, aes(x=as.factor(TISSUE), y=GENES)) +  
+  geom_boxplot(width=0.50, outlier.shape = 16, outlier.size = 0.59, outlier.alpha = 1, fill="darkgrey") +
+  geom_point(data = eda_gene, aes(x = TISSUE, y = GENES), 
+             color = "black", shape = 21, size = 2, stroke = 0.3, fill = "skyblue", alpha = 1, 
+             position = position_jitter(width = 0)) + # Slight jitter to avoid overlap with box edges
+  geom_point(data = edar_gene, aes(x = TISSUE, y = GENES), 
+             color = "black", shape = 21, size = 2, stroke = 0.3, fill = "darkmagenta", alpha = 1, 
+             position = position_jitter(width = 0)) + # Slight jitter to avoid overlap with box edges
+  geom_point(data = eda2r_gene, aes(x = TISSUE, y = GENES), 
+             color = "black", shape = 21, size = 3, stroke = 0.3, fill = "yellow", alpha = 1, 
+             position = position_jitter(width = 0.1)) + # Slight jitter to avoid overlap with box edges
+  # Set custom axis titles
+  labs(y = "Pearson's correlation coefficient (r)", x = "") +
+  
+  theme_bw() +
+  theme(
+    legend.position = "none",
+    plot.title = element_text(color = "black", size = 14, face = "bold", hjust = 0.5),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.background = element_rect(colour = "black", size = 1),
+     axis.text.x = element_text(angle = -45, vjust = 1, hjust = 0),  # Left-align the labels
+     plot.margin = unit(c(1, 1, 1, 1), "lines") # Increase right margin
+  ) +
+  scale_y_continuous(limits = c(-0.75, 0.75)) 
+
+p_gene
+```
+
+```{r hs_step2, echo=TRUE, warning = FALSE, message = FALSE}
+corr_median = rowMedians(as.matrix(df))
+names(corr_median) = rownames(df)
+corr_median = corr_median[order(corr_median)]
+corr_median = corr_median[which(!is.na(corr_median))]
+
+# Prepare the data
+corr_median_df <- data.frame(
+    Gene = names(corr_median),
+    Value = corr_median,
+    AbsValue = abs(corr_median),
+    Sign = ifelse(corr_median < 0, "negative", "positive")
+)
+
+# Create a sequence for the x-axis
+corr_median_df$Index <- seq(1, nrow(corr_median_df))
+
+# Highlight specific genes with custom colors and settings
+highlight_data <- corr_median_df %>% 
+    filter(Gene %in% c("ENSG00000131080", "ENSG00000135960", "ENSG00000158813")) %>%
+    mutate(
+        fill = case_when(
+            Gene == "ENSG00000131080" ~ "yellow",
+            Gene == "ENSG00000135960" ~ "magenta",
+            Gene == "ENSG00000158813" ~ "lightblue"
+        ),
+        color = case_when(
+            Gene == "ENSG00000131080" ~ "black",
+            Gene == "ENSG00000135960" ~ "white",
+            Gene == "ENSG00000158813" ~ "white"
+        )
+    )
+
+# Create the plot
+p_corr_median <- ggplot(corr_median_df, aes(x = Index, y = AbsValue)) +
+    geom_point(aes(
+        color = Sign,
+        fill = Sign,
+        shape = Sign
+    ), size = 3) +
+    scale_color_manual(values = c("negative" = "lightblue", "positive" = "lightcoral")) +
+    scale_fill_manual(values = c("negative" = "darkblue", "positive" = "darkred")) +
+    scale_shape_manual(values = c("negative" = 21, "positive" = 21)) +
+    geom_point(data = highlight_data,
+               aes(x = Index, y = AbsValue),
+               shape = 21, size = 4, stroke = 1,
+               fill = highlight_data$fill, color = highlight_data$color) +
+    theme_bw() +
+    theme(
+        axis.text.x = element_blank(),
+        axis.ticks.x = element_blank(),
+        plot.title = element_text(color = "black", size = 14, face = "bold", hjust = 0.5),
+        panel.grid.major = element_blank(),
+        panel.grid.minor = element_blank(),
+        panel.background = element_rect(colour = "black", size = 1),
+        aspect.ratio = 1.5  # Adjust the ratio; higher values compress the x-axis
+    ) +
+    labs(
+        title = "Absolute Values of corr_median",
+        x = "Gene Index",
+        y = "Absolute Value of median Pearson's correlation coefficient"
+    )
+p_corr_median
+
+```
+
+
+### Animal models
 
 Here we extened correlations analysis to animal models (mouse, rat) using data and annotations from the ***Tabula Muris Senis*** and ***Rat BodyMap*** projects. Comprehensive analyses for all tissue types are included as all data is publiclcy available.
 
@@ -323,121 +473,102 @@ Here we extened correlations analysis to animal models (mouse, rat) using data a
 
 ```{r am_step1, echo=TRUE, warning = FALSE, message = FALSE}
 
-# importing raw count matrix and discard samples with < 2M reads mapped to genes
-mus.rawcounts = read.table(file = "./data/mouse/mus_rawcounts.txt", header = T, row.names = 1)
-samples2keep = names(colSums(mus.rawcounts)[which(colSums(mus.rawcounts)>2000000)])
-mus.rawcounts = mus.rawcounts[,samples2keep]
+# Import raw count matrix and discard samples with < 2M reads mapped to genes
+mus.rawcounts <- read.table(file = "./data/mouse/mus_rawcounts.txt", header = TRUE, row.names = 1)
+samples2keep <- colnames(mus.rawcounts)[colSums(mus.rawcounts) > 2e6]
+mus.rawcounts <- mus.rawcounts[, samples2keep]
 
-# fetching gene annotations
-Db = org.Mm.eg.db
-symbols <- mapIds(Db,
-                  keys = row.names(mus.rawcounts),
-                  column = "SYMBOL",
-                  keytype = "ENSEMBL",
-                  multiVals = "first")
-entrez <- mapIds(Db,
-                 keys = row.names(mus.rawcounts),
-                 column = "ENTREZID",
-                 keytype = "ENSEMBL",
-                 multiVals = "first")
-ensembl <- mapIds(Db,
-                  keys = row.names(mus.rawcounts),
-                  column = "ENSEMBL",
-                  keytype = "ENSEMBL",
-                  multiVals = "first")
-chromosomes <- mapIds(Db,
-                      keys = row.names(mus.rawcounts),
-                      column = "CHR",
-                      keytype = "ENSEMBL",
-                      multiVals = "first")
-mus_gene_annot = data.frame(SYMBOL = symbols, ENTREZ = entrez, ENSEMBL = ensembl, CHR = chromosomes, row.names = row.names(mus.rawcounts))
+# Fetch gene annotations
+mus_gene_annot <- data.frame(
+  SYMBOL = mapIds(org.Mm.eg.db, keys = rownames(mus.rawcounts), column = "SYMBOL", keytype = "ENSEMBL"),
+  ENTREZ = mapIds(org.Mm.eg.db, keys = rownames(mus.rawcounts), column = "ENTREZID", keytype = "ENSEMBL"),
+  ENSEMBL = rownames(mus.rawcounts),
+  CHR = mapIds(org.Mm.eg.db, keys = rownames(mus.rawcounts), column = "CHR", keytype = "ENSEMBL"),
+  row.names = rownames(mus.rawcounts)
+)
 
-# loading and preparing sample annotation file
-mus.annot = read.table(file = "./data/mouse/GSE132040_MACA_Bulk_metadata.csv", sep = ",", header = T, row.names = 1)
+# Load and prepare sample annotation file
+mus.annot <- read.csv(file = "./data/mouse/GSE132040_MACA_Bulk_metadata.csv", header = TRUE, row.names = 1)
+
+# Set the row names of mus.annot to match the `raw.file` column
 rownames(mus.annot) <- mus.annot$raw.file
-mus.annot$AGE = mus.annot$characteristics..age
-mus.annot$SEX = mus.annot$characteristics..sex
-mus.annot = mus.annot[samples2keep,]
-mus.annot$SOURCE = mus.annot$source.name
 
-# merging adipose tissue samples into one group
-mus.annot[grep("BAT|SCAT|GAT|MAT", mus.annot$source.name),]$SOURCE = "Adipose"
+# Filter mus.annot to keep only the samples that match those in mus.rawcounts
+mus.annot <- mus.annot[samples2keep, ]
 
-# normalizing read counts
-mus.dds = DESeqDataSetFromMatrix(countData = mus.rawcounts, colData = mus.annot, design = ~ 1)
-mus.vst = vst(mus.dds, blind = T)
+# Update annotations
+mus.annot <- mus.annot %>%
+  mutate(
+    AGE = characteristics..age,
+    SEX = characteristics..sex,
+    SOURCE = ifelse(grepl("BAT|SCAT|GAT|MAT", source.name), "Adipose", source.name)
+  )
 
-# available murine tissues
-tissues = c("Liver", "Adipose", "Brain", "Lung", "Limb", "WBC", "Small", "Spleen", "Pancreas", "Heart", "Skin", "Marrow", "Bone", "Kidney")
+# Ensure that the column names of mus.rawcounts match the row names of mus.annot
+mus.rawcounts <- mus.rawcounts[, rownames(mus.annot)]
 
-# computting correlations between gene expression and age (months)
-mus_correlations = list() 
-for(i in 1:length(tissues)){
-  
-  # Normalize tissues
-  currentTissue = tissues[i]
-  currentSamples = rownames(mus.annot[grep(currentTissue, mus.annot$SOURCE),])
-  currentAnnot = mus.annot[currentSamples,]
-  current.vst = mus.vst[,currentSamples]
+# Create DESeqDataSet
+mus.dds <- DESeqDataSetFromMatrix(countData = mus.rawcounts, colData = mus.annot, design = ~ 1)
+
+# Normalize read counts
+mus.vst <- vst(mus.dds, blind = TRUE)
+
+# Available murine tissues
+tissues <- c("Liver", "Adipose", "Brain", "Lung", "Limb", "WBC", "Small", "Spleen", "Pancreas", "Heart", "Skin", "Marrow", "Bone", "Kidney")
+
+# Function to compute correlations for a given tissue
+compute_correlations <- function(tissue) {
+  currentSamples <- rownames(mus.annot[grep(tissue, mus.annot$SOURCE), ])
+  currentAnnot <- mus.annot[currentSamples, ]
+  current.vst <- mus.vst[, currentSamples]
   
   # Batch effect correction (SEX), while preserving AGE-associated differences
-  batchcov = model.matrix(~ 0 + AGE, data = currentAnnot)
-  assay(current.vst) <- removeBatchEffect(x = assay(current.vst), batch = currentAnnot[colnames(current.vst),]$SEX, design = batchcov)
-  musGE = assay(current.vst)
+  batchcov <- model.matrix(~ 0 + AGE, data = currentAnnot)
+  assay(current.vst) <- removeBatchEffect(assay(current.vst), batch = currentAnnot$SEX, design = batchcov)
   
-  # Aggregation of samples by timepoint
-  # 1,3,6,9,12,15,18,21,24,27 months
-  t1_samples = rownames(currentAnnot)[which(currentAnnot$AGE==1)]
-  t3_samples = rownames(currentAnnot)[which(currentAnnot$AGE==3)]
-  t6_samples = rownames(currentAnnot)[which(currentAnnot$AGE==6)]
-  t9_samples = rownames(currentAnnot)[which(currentAnnot$AGE==9)]
-  t12_samples = rownames(currentAnnot)[which(currentAnnot$AGE==12)]
-  t15_samples = rownames(currentAnnot)[which(currentAnnot$AGE==15)]
-  t18_samples = rownames(currentAnnot)[which(currentAnnot$AGE==18)]
-  t21_samples = rownames(currentAnnot)[which(currentAnnot$AGE==21)]
-  t24_samples = rownames(currentAnnot)[which(currentAnnot$AGE==24)]
-  t27_samples = rownames(currentAnnot)[which(currentAnnot$AGE==27)]
-  currGE_median = data.frame(T1 = rowMedians(musGE[,t1_samples]),
-                  T3 = rowMedians(musGE[,t3_samples]),
-                  T6 = rowMedians(musGE[,t6_samples]),
-                  T9 = rowMedians(musGE[,t9_samples]),
-                  T12 = rowMedians(musGE[,t12_samples]),
-                  T15 = rowMedians(musGE[,t15_samples]),
-                  T18 = rowMedians(musGE[,t18_samples]),
-                  T21 = rowMedians(musGE[,t21_samples]),
-                  T24 = rowMedians(musGE[,t24_samples]),
-                  T27 = rowMedians(musGE[,t27_samples]),
-                  row.names = rownames(musGE))
+  # Aggregate by timepoint and compute Pearson's correlation with log2(months)
+  ages <- unique(currentAnnot$AGE)
+  currGE_median <- sapply(ages, function(age) {
+    rowMedians(assay(current.vst)[, currentAnnot$AGE == age], na.rm = TRUE)
+  })
+  rownames(currGE_median) <- rownames(assay(current.vst))
   
-  # Pearson's correlation
-  months = c(1,3,6,9,12,15,18,21,24,27)
-  corrtest = apply(currGE_median, 1, cor.test, log2(months), method="pearson")
-  coefs <- as.double(unlist(corrtest)[grep("estimate.cor",names(unlist(corrtest)))])
-  names(coefs)<-gsub(pattern=".estimate.cor",x=rownames(currGE_median), replacement="")
-  pvals <- as.double(unlist(corrtest)[grep("p.value",names(unlist(corrtest)))])
-  names(pvals)<-gsub(pattern=".p.value",x=rownames(currGE_median), replacement="")
-  corr_table <- data.frame(row.names = rownames(currGE_median),  pvalue = pvals, coef = coefs, stringsAsFactors = F)
-  mus_correlations[[i]]=corr_table
-}
-names(mus_correlations) = tissues
-
-# extracting correlation coefficients
-mus_coefs = data.frame(row.names = rownames(mus_correlations[[1]]), matrix(ncol = length(mus_correlations), nrow = nrow(mus_correlations[[1]]), data = NA))
-for(j in 1:length(mus_coefs)){
-  mus_coefs[,j] = mus_correlations[[j]]$coef
-}
-colnames(mus_coefs) = names(mus_correlations)
-
-# ranking genes for their median correlation coefficient across tissues
-mus_metacoefs = rowMedians(data.matrix(mus_coefs), na.rm = T)
-names(mus_metacoefs) = rownames(mus_coefs)
-mus_metacorr = data.frame(row.names = names(mus_metacoefs),  metaCoefs = mus_metacoefs, mus_gene_annot[names(mus_metacoefs),])
-mus_metacorr = mus_metacorr[order(mus_metacorr$metaCoefs, decreasing = T),]
-mus_metaTable = data.frame(
-  row.names = seq(1:nrow(mus_metacorr)), 
-  mus_metacorr[,c(4,2,3,5)],
-  medianCorr = mus_metacorr[,1]
+  #months <- log2(c(1, 3, 6, 9, 12, 15, 18, 21, 24, 27))
+  months <- log2(as.integer(colnames(currGE_median)))
+  corrtest <- apply(currGE_median, 1, cor.test, months, method = "pearson")
+  data.frame(
+    pvalue = sapply(corrtest, function(x) x$p.value),
+    coef = sapply(corrtest, function(x) x$estimate)
   )
+}
+
+# Compute correlations for each tissue
+mus_correlations <- lapply(tissues, compute_correlations)
+names(mus_correlations) <- tissues
+
+# Extracting correlation coefficients
+mus_coefs <- do.call(cbind, lapply(mus_correlations, function(x) x$coef))
+colnames(mus_coefs) <- tissues
+rownames(mus_coefs) <- rownames(mus_correlations[[1]])
+
+# Ranking genes for their median correlation coefficient across tissues
+mus_metacoefs <- rowMedians(mus_coefs, na.rm = TRUE)
+mus_metacorr <- data.frame(
+  metaCoefs = mus_metacoefs,
+  mus_gene_annot[rownames(mus_coefs), ]
+) %>%
+  arrange(desc(metaCoefs))
+
+mus_metaTable <- data.frame(
+  ENSEMBL = mus_metacorr$ENSEMBL,
+  SYMBOL = mus_metacorr$SYMBOL,
+  ENTREZ = mus_metacorr$ENTREZ,
+  CHR = mus_metacorr$CHR,
+  medianCorr = mus_metacorr$metaCoefs,
+  row.names = NULL
+)
+
+# Display the top 10 genes
 head(mus_metaTable, n = 10)
 ```
 
@@ -446,119 +577,123 @@ head(mus_metaTable, n = 10)
 ##### Correlation analysis of gene expression and age - Rat Bodymap Project (GSE53960)
 
 ```{r am_step2, echo=TRUE, warning = FALSE, message = FALSE}
+# Import raw count matrix and discard samples with < 2M reads mapped to genes
+rat.rawcounts <- read.table(file = "./data/rat/rat_rawcounts.txt", header = TRUE, row.names = 1)
+samples2keep <- colnames(rat.rawcounts)[colSums(rat.rawcounts) > 2e6]
+rat.rawcounts <- rat.rawcounts[, samples2keep]
 
-# importing raw count matrix and discard samples with < 2M reads mapped to genes
-rat.rawcounts = read.table(file = "./data/rat/rat_rawcounts.txt", header = T, row.names = 1)
-samples2keep = names(colSums(rat.rawcounts)[which(colSums(rat.rawcounts)>2000000)])
-rat.rawcounts = rat.rawcounts[,samples2keep]
+# Fetch gene annotations
+rat_gene_annot <- data.frame(
+  SYMBOL = mapIds(org.Rn.eg.db, keys = rownames(rat.rawcounts), column = "SYMBOL", keytype = "ENSEMBL"),
+  ENTREZ = mapIds(org.Rn.eg.db, keys = rownames(rat.rawcounts), column = "ENTREZID", keytype = "ENSEMBL"),
+  ENSEMBL = rownames(rat.rawcounts),
+  CHR = mapIds(org.Rn.eg.db, keys = rownames(rat.rawcounts), column = "CHR", keytype = "ENSEMBL"),
+  row.names = rownames(rat.rawcounts)
+)
 
-# fetching gene annotations
-Db = org.Rn.eg.db
-symbols <- mapIds(Db,
-                  keys = row.names(rat.rawcounts),
-                  column = "SYMBOL",
-                  keytype = "ENSEMBL",
-                  multiVals = "first")
-entrez <- mapIds(Db,
-                 keys = row.names(rat.rawcounts),
-                 column = "ENTREZID",
-                 keytype = "ENSEMBL",
-                 multiVals = "first")
-ensembl <- mapIds(Db,
-                  keys = row.names(rat.rawcounts),
-                  column = "ENSEMBL",
-                  keytype = "ENSEMBL",
-                  multiVals = "first")
-chromosomes <- mapIds(Db,
-                      keys = row.names(rat.rawcounts),
-                      column = "CHR",
-                      keytype = "ENSEMBL",
-                      multiVals = "first")
-rat_gene_annot = data.frame(SYMBOL = symbols, ENTREZ = entrez, ENSEMBL = ensembl, CHR = chromosomes, row.names = row.names(rat.rawcounts))
+# Load and prepare sample annotation file
+rat.annot <- read.table(file = "./data/rat/rat_annot.txt", sep = "\t", header = TRUE, row.names = 1)
 
-# loading and preparing sample annotation file
-rat.annot = read.table(file = "./data/rat/rat_annot.txt", sep = "\t", header = T, row.names = 1)
+# Ensure that the column names of rat.rawcounts match the row names of rat.annot
+rat.rawcounts <- rat.rawcounts[, rownames(rat.annot)]
 
-rat.rawcounts = rat.rawcounts[,rownames(rat.annot)]
+# Create DESeqDataSet
+rat.dds <- DESeqDataSetFromMatrix(countData = rat.rawcounts, colData = rat.annot, design = ~ 1)
 
+# Normalize read counts
+rat.vst <- vst(rat.dds, blind = TRUE)
 
-# normalizing read counts
-rat.dds = DESeqDataSetFromMatrix(countData = rat.rawcounts, colData = rat.annot, design = ~ 1)
-rat.vst = vst(rat.dds)
+# Define tissues to analyze
+tissues <- c("adrenal", "brain", "heart", "kidney", "liver", "lung", "muscle", "spleen", "thymus", "testes", "uterus")
 
-# computing correlations
-
-tissues = c("adrenal", "brain", "heart", "kidney", "liver", "lung", "muscle", "spleen", "thymus", "testes", "uterus")
-
-rat_correlations = list() 
-for(i in 1:length(tissues)){
-  current.tissue = tissues[i]
-  current.samples = rownames(rat.annot[grep(current.tissue, rat.annot$TISSUE),])
-  current.annot = rat.annot[current.samples,]
-  current.vst = rat.vst[,current.samples]
-  if(length(table(current.annot$SEX))>1) {
-    batchcov = model.matrix(~ 0 + AGE, data = current.annot)
-    assay(current.vst) <- removeBatchEffect(x = assay(current.vst), batch = current.annot[colnames(current.vst),]$SEX, design = batchcov)
-  } 
-  ratGE = assay(current.vst)
-  months = setNames(object = current.annot$AGE, nm = rownames(current.annot))
-  corrtest = apply(ratGE, 1, cor.test, log2(months), method="pearson")
-  coefs <- as.double(unlist(corrtest)[grep("estimate.cor",names(unlist(corrtest)))])
-  names(coefs)<-gsub(pattern=".estimate.cor",x=rownames(ratGE), replacement="")
-  pvals <- as.double(unlist(corrtest)[grep("p.value",names(unlist(corrtest)))])
-  names(pvals)<-gsub(pattern=".p.value",x=rownames(ratGE), replacement="")
-  corr_table <- data.frame(row.names = rownames(ratGE),  pvalue = pvals, coef = coefs, stringsAsFactors = F)
-  rat_correlations[[i]]=corr_table
-}
-names(rat_correlations) = tissues
-
-
-# extracting correlation coefficients
-rat_coefs = data.frame(row.names = rownames(rat_correlations[[1]]), matrix(ncol = length(rat_correlations), nrow = nrow(rat_correlations[[1]]), data = NA))
-for(j in 1:length(rat_coefs)){
-  rat_coefs[,j] = rat_correlations[[j]]$coef
-}
-colnames(rat_coefs) = names(rat_correlations)
-
-# ranking genes for their median correlation coefficient across tissues
-rat_metacoefs = rowMedians(data.matrix(rat_coefs), na.rm = T)
-names(rat_metacoefs) = rownames(rat_coefs)
-rat_metacorr = data.frame(row.names = names(rat_metacoefs),  metaCoefs = rat_metacoefs, rat_gene_annot[names(rat_metacoefs),])
-rat_metacorr = rat_metacorr[order(rat_metacorr$metaCoefs, decreasing = T),]
-rat_metaTable = data.frame(
-  row.names = seq(1:nrow(rat_metacorr)), 
-  rat_metacorr[,c(4,2,3,5)],
-  medianCorr = rat_metacorr[,1]
+# Function to compute correlations for a given tissue
+compute_correlations <- function(tissue) {
+  currentSamples <- rownames(rat.annot[grep(tissue, rat.annot$TISSUE), ])
+  currentAnnot <- rat.annot[currentSamples, ]
+  current.vst <- rat.vst[, currentSamples]
+  
+  if (length(unique(currentAnnot$SEX)) > 1) {
+    batchcov <- model.matrix(~ 0 + AGE, data = currentAnnot)
+    assay(current.vst) <- removeBatchEffect(assay(current.vst), batch = currentAnnot$SEX, design = batchcov)
+  }
+  
+  ratGE <- assay(current.vst)
+  months <- setNames(currentAnnot$AGE, rownames(currentAnnot))
+  
+  corrtest <- apply(ratGE, 1, cor.test, log2(months), method = "pearson")
+  
+  data.frame(
+    pvalue = sapply(corrtest, function(x) x$p.value),
+    coef = sapply(corrtest, function(x) x$estimate),
+    row.names = rownames(ratGE)
   )
+}
+
+# Compute correlations for each tissue
+rat_correlations <- lapply(tissues, compute_correlations)
+names(rat_correlations) <- tissues
+
+# Extracting correlation coefficients
+rat_coefs <- do.call(cbind, lapply(rat_correlations, `[[`, "coef"))
+dimnames(rat_coefs) = list(rownames(rat_correlations[[1]]), tissues)
+
+# Ranking genes for their median correlation coefficient across tissues
+rat_metacoefs <- rowMedians(rat_coefs, na.rm = TRUE)
+rat_metacorr <- data.frame(
+  metaCoefs = rat_metacoefs,
+  rat_gene_annot[rownames(rat_coefs), ]
+) %>%
+  arrange(desc(metaCoefs))
+
+rat_metaTable <- data.frame(
+  ENSEMBL = rat_metacorr$ENSEMBL,
+  SYMBOL = rat_metacorr$SYMBOL,
+  ENTREZ = rat_metacorr$ENTREZ,
+  CHR = rat_metacorr$CHR,
+  medianCorr = rat_metacorr$metaCoefs,
+  row.names = NULL
+)
+
+# Display the top 10 genes
 head(rat_metaTable, n = 10)
 ```
 
 ##### Depict correlations - Tabula Muris Senis + Rat Bodymap Project (GSE53960)
 
 ```{r am_step3, echo=TRUE, warning = FALSE, message = FALSE}
+# Combine the mouse and rat data into a single dataframe
+df <- rbind(
+  data.frame(SYMBOL = mus_metaTable$SYMBOL, Median_Corr = mus_metaTable$medianCorr, SPECIES = "MOUSE"),
+  data.frame(SYMBOL = rat_metaTable$SYMBOL, Median_Corr = rat_metaTable$medianCorr, SPECIES = "RAT")
+)
 
-df.mus = data.frame(row.names = mus_metaTable$ENSEMBL, SYMBOL = mus_metaTable$SYMBOL, Median_Corr = mus_metaTable$medianCorr)
-df.mus$SPECIES = "MOUSE"
+# Filter for the Eda2r gene
+df.eda2r <- df[df$SYMBOL == "Eda2r", ]
 
-df.rat = data.frame(row.names = rat_metaTable$ENSEMBL, SYMBOL = rat_metaTable$SYMBOL, Median_Corr = rat_metaTable$medianCorr)
-df.rat$SPECIES = "RAT"
+# Plot
+p_gene <- ggplot(df, aes(x = SPECIES, y = Median_Corr, fill = SPECIES)) +
+  geom_half_boxplot(side = "l", alpha = 0.4, show.legend = FALSE, outlier.alpha = 0) +  # Hide legend for boxplot
+  geom_half_violin(side = "r", trim = TRUE, alpha = 0.4, show.legend = FALSE) +         # Hide legend for violin
+  geom_point(data = df.eda2r, aes(x = SPECIES, y = Median_Corr, fill = "Eda2r"), 
+             color = "black", shape = 21, stroke = 1, size = 8, show.legend = TRUE) +
+  scale_fill_manual(values = c("MOUSE" = "white", "RAT" = "lightgrey", "Eda2r" = "yellow"),
+                    breaks = "Eda2r", labels = "Eda2r") +  # Only show "Eda2r" in the legend
+  coord_fixed(ratio = 2) +  # Adjust the ratio to compress the x-axis
+  theme_bw() + 
+  theme(
+    axis.title.x = element_blank(),  # Remove the x-axis title
+    axis.text.x = element_text(angle = 0, vjust = 0.5),  # Keep the x-axis labels for MOUSE and RAT
+    axis.ticks.x = element_line(),                      # Keep x-axis ticks
+    legend.position = "right",                          # Position the legend on the right
+    legend.title = element_blank(),                     # Remove the title of the legend
+    legend.text = element_text(size = 8)                # Make the legend text smaller
+  )  +
+  labs( 
+    x = "",
+    y = "Median Pearson's correlation coefficient (r)"
+  ) +
+  guides(fill = guide_legend(override.aes = list(shape = 21, size = 6, color = "black", stroke = 1)))
 
-df = rbind(df.mus[,c("SYMBOL","Median_Corr","SPECIES")], df.rat[,c("SYMBOL","Median_Corr","SPECIES")])
-df.eda2r = df[which(df$SYMBOL=="Eda2r"),]
-
-#I(SMUBRTRM.colscale)
-
-color = rep(NA, length(df))
-color[which(df$SPECIES=="MOUSE")] = "white"
-color[which(df$SPECIES=="RAT")] = "darkgrey"
-
-p_gene = ggplot(df, aes(x=SPECIES, y=Median_Corr, fill=I(color))) +
-  geom_half_boxplot(side = "l",  alpha = 0.4, show.legend = FALSE, outlier.alpha = 0) +
-  geom_half_violin(side = "r", trim = T,  alpha = 0.4, show.legend = FALSE) +
-  geom_point(data = df.eda2r, aes(x = SPECIES, y = Median_Corr), fill = "yellow", color = "black", shape = 21, stroke = 1, size=8) +
-  #stat_compare_means(comparisons = my_comparisons,  color = "black", bracket.size = 0.5, ) +
-  theme_bw() + theme(axis.text.x = element_text(angle=0,vjust = 0)) +
-  theme(axis.text.x=element_text(angle=0,vjust = 0))
 p_gene
 ```
 
@@ -570,59 +705,51 @@ Here we extened correlations analysis to animal models (mouse, rat) using data a
 
 ##### Data Processing and normalization
 
-```{r am_step4, echo=TRUE, warning = FALSE, message = FALSE}
+```{r hgps_step1, echo=TRUE, warning = FALSE, message = FALSE}
+# Load raw counts and annotations
+hgps_rawcounts <- read.table("./data/progeria/GSE165409_LMNA_rawCounts_18samp.txt", header = TRUE, row.names = 1, sep = "\t")
+hgps_annot <- data.frame(row.names = colnames(hgps_rawcounts), GROUP = rep(c("LMNA_Y", "WT_Y", "WT_O"), each = 6), OUTLIER = c(rep("NO", 12), rep("YES", 6)))
 
-hgps_rawcounts = read.table("./data/progeria/GSE165409_LMNA_rawCounts_18samp.txt", header = T, row.names = 1, sep = "\t")
+# Align raw counts with annotations
+hgps_rawcounts <- hgps_rawcounts[, rownames(hgps_annot)]
 
-hgps_annot = data.frame(row.names = colnames(hgps_rawcounts), GROUP = c(rep("LMNA_Y",6), rep("WT_Y",6), rep("WT_O",6)), OUTLIER = c(rep("NO",12),rep("YES",6)))
+# Retrieve gene annotations
+symbols <- mapIds(org.Mm.eg.db, keys = rownames(hgps_rawcounts), column = "SYMBOL", keytype = "ENSEMBL", multiVals = "first")
+entrez <- mapIds(org.Mm.eg.db, keys = rownames(hgps_rawcounts), column = "ENTREZID", keytype = "ENSEMBL", multiVals = "first")
+hgps_gene_annot <- data.frame(SYMBOL = symbols, ENTREZ = entrez, row.names = rownames(hgps_rawcounts))
 
-hgps_rawcounts = hgps_rawcounts[,rownames(hgps_annot)]
+# Create DESeq2 Object
+hgps_dds <- DESeqDataSetFromMatrix(countData = hgps_rawcounts, colData = hgps_annot, design = ~ GROUP)
 
-# retrieve gene annotations ------------------------------
-Db = org.Mm.eg.db
-symbols <- mapIds(Db,
-                  keys = row.names(hgps_rawcounts),
-                  column = "SYMBOL",
-                  keytype = "ENSEMBL",
-                  multiVals = "first"
-)
-entrez <- mapIds(Db,
-                 keys = row.names(hgps_rawcounts),
-                 column = "ENTREZID",
-                 keytype = "ENSEMBL",
-                 multiVals = "first")
-hgps_gene_annot = data.frame(SYMBOL=symbols, ENTREZ=entrez)
-rownames(hgps_gene_annot) <- rownames(hgps_rawcounts)
-
-# Create DESeq2 Object ------------------------------
-hgps_dds <- DESeqDataSetFromMatrix(countData = hgps_rawcounts, colData = hgps_annot, design = ~ 0 + GROUP)
-
-# Generate alternative quantifications
-hgps_dds.cpm <- cpm(hgps_dds, normalized.lib.sizes = TRUE)
-hgps_dds.log2cpm <- log2(1+hgps_dds.cpm)
+# Normalize and transform counts
 hgps_dds.vst <- vst(hgps_dds, blind = TRUE)
 hgps_dds.assay <- assay(hgps_dds.vst)
 
-#PCA ANALYSIS ------------------------------
-  #plotPCA(dds_vst, intgroup = "GROUP", ntop = 2000)
-  # Perform PCA analysis using top 2000 genes
-ntop = 2000
-rv = rowVars(hgps_dds.assay) # calcola varianza di ogni gene
-rv_ordered = rownames(hgps_dds.assay)[order(rv, decreasing = TRUE)] # ordina i gene symbol in base alla varianza
-selected = rv_ordered[1:ntop]
-pca = prcomp( t(hgps_dds.assay[selected,]) )
-percentVar <- round(100* pca$sdev^2/sum(pca$sdev^2) )
-df.pca = data.frame(pca$x[,1:3], hgps_annot[rownames(pca$x),], LABEL = rownames(pca$x))
-percentVar <- round(100* pca$sdev^2/sum(pca$sdev^2) )
-p1 <- ggplot(df.pca, aes(x = PC1, y = PC2, color=GROUP)) +
-  geom_point(size=3.5, aes(fill=GROUP ), colour="black",pch=21, stroke = 0.8) +
-  coord_fixed(ratio = 1) +
-  xlab(paste0("PC1"," : ",percentVar[1]," % variance")) +
-  ylab(paste0("PC2"," : ",percentVar[2]," % variance")) +
-  coord_fixed(ratio = 6/5)  +
-  geom_text_repel(data = df.pca, aes(label = LABEL), nudge_y = 5, nudge_x = 5, segment.size = 0.4, hjust = 1, point.padding = 0.5, arrow = arrow(length = unit(0.08, "inches"), angle = 15, type = "closed", ends = "first")) +
+# PCA Analysis
+ntop <- 2000
+selected <- order(rowVars(hgps_dds.assay), decreasing = TRUE)[1:ntop]
+pca <- prcomp(t(hgps_dds.assay[selected, ]))
+percentVar <- round(100 * (pca$sdev^2 / sum(pca$sdev^2)))
+
+df.pca <- data.frame(PC1 = pca$x[, 1], PC2 = pca$x[, 2], GROUP = hgps_annot$GROUP, LABEL = rownames(pca$x))
+
+# Plotting
+p1 <- ggplot(df.pca, aes(x = PC1, y = PC2, color = GROUP)) +
+  geom_point(size = 3.5, aes(fill = GROUP), color = "black", pch = 21, stroke = 0.8) +
+  coord_fixed(ratio = 6 / 5) +
+  xlab(paste0("PC1 : ", percentVar[1], " % variance")) +
+  ylab(paste0("PC2 : ", percentVar[2], " % variance")) +
+  geom_text_repel(aes(label = LABEL), nudge_y = 5, nudge_x = 5, segment.size = 0.4, hjust = 1, point.padding = 0.5,
+                  arrow = arrow(length = unit(0.08, "inches"), angle = 15, type = "closed", ends = "first")) +
   theme_bw() +
-  theme(panel.grid = element_blank(), panel.background = element_rect(fill = NA, colour = "black", size = 1), axis.text=element_text(size=10, face="plain"), axis.title=element_text(size=12,face="plain",family = "Arial"), axis.ticks.x = element_line(colour = "black"))
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = NA, colour = "black", size = 1),
+    axis.text = element_text(size = 10, face = "plain"),
+    axis.title = element_text(size = 12, face = "plain", family = "Arial"),
+    axis.ticks.x = element_line(colour = "black")
+  )
+
 p1
 ```
 
@@ -630,134 +757,286 @@ p1
 
 ##### Differential expression analysis
 
-```{r am_step5, echo=TRUE, warning = FALSE, message = FALSE}
+```{r hgps_step2, echo=TRUE, warning = FALSE, message = FALSE}
 
 # Run DESeq2 ----------------------------------
 hgps_dds  <- estimateSizeFactors(hgps_dds)
 hgps_dds <- DESeq(hgps_dds)
-hgps_dds.design = model.matrix(~ 0 + GROUP, data=hgps_annot)
-colnames(hgps_dds.design) = gsub(x = colnames(hgps_dds.design), pattern = "GROUP", replacement = "")
 
 # Discard genes without gene symbol -----------
-hgps_dds.subset = hgps_dds[which(!is.na(hgps_gene_annot[rownames(hgps_dds),]$SYMBOL)),]
+hgps_dds.subset <- hgps_dds[!is.na(hgps_gene_annot$SYMBOL),]
 
-# Define Constrasts ------------------------------
-contlist = list()
-contlist[[1]] =  makeContrasts(LMNA_Y-WT_Y,levels = hgps_dds.design)
-contlist[[2]] =  makeContrasts(WT_O-WT_Y,levels = hgps_dds.design)
-contlist[[3]] =  makeContrasts(LMNA_Y-WT_O,levels = hgps_dds.design)
-names(contlist) = c("LMNA_Y.vs.WT_Y","WT_O.vs.WT_Y","LMNA_Y.vs.WT_O")
+# Define Contrasts ------------------------------
+contrast_list <- list(
+  "LMNA_Y_vs_WT_Y" = c("GROUP", "LMNA_Y", "WT_Y"),
+  "WT_O_vs_WT_Y" = c("GROUP", "WT_O", "WT_Y"),
+  "LMNA_Y_vs_WT_O" = c("GROUP", "LMNA_Y", "WT_O")
+)
 
-# Perform DExpression ------------------------------
-comlist = list()
-for(i in 1:length(contlist)){
-  print(i)
-  temp = results(hgps_dds.subset, contrast =  contlist[[i]], independentFiltering = TRUE, alpha = 0.1)
-  temp = data.frame(hgps_gene_annot[rownames(temp),],temp, stringsAsFactors = F)
-  temp = temp[order(temp$pvalue),]
-  comlist[[i]] = temp
-}
-names(comlist) = names(contlist)
+# Perform Differential Expression Analysis ------------------------------
+de_results <- lapply(contrast_list, function(contrast) {
+  res <- results(hgps_dds.subset, contrast = contrast, alpha = 0.1)
+  res <- res[order(res$pvalue), ]
+  res <- as.data.frame(res)
+  res$SYMBOL <- hgps_gene_annot[rownames(res),]$SYMBOL
+  return(res)
+})
 
-degenes = comlist$LMNA_Y.vs.WT_Y
+# Extract the specific comparison (LMNA_Y vs WT_Y)
+res <- de_results[["LMNA_Y_vs_WT_Y"]]
+res <- res[res$baseMean > 100, ]
 
+# Volcano Plot Preparation ------------------------------
+threshold_FC <- 1
+threshold_PVALUE <- 0.05
 
-res = comlist$LMNA_Y.vs.WT_Y
-res = res[which(res$baseMean>100),]
-#res = res[which(abs(res$log2FoldChange)<4),]
+# Define colors and sizes
+res$FDR <- -10 * log10(res$padj)  # Adjust the y-axis scale to -10*log10(FDR)
+res$color <- ifelse(res$SYMBOL == "Eda2r", "yellow",
+                    ifelse(res$log2FoldChange > threshold_FC & res$padj < threshold_PVALUE, "darkred",
+                           ifelse(res$log2FoldChange < -threshold_FC & res$padj < threshold_PVALUE, "darkblue", "grey60")))
+res$border <- ifelse(res$SYMBOL == "Eda2r", "black",
+                     ifelse(res$color == "darkred", "lightcoral",
+                            ifelse(res$color == "darkblue", "lightblue", "grey")))
+res$size <- ifelse(res$SYMBOL == "Eda2r", 6,  # Further increased size for "Eda2r"
+                   ifelse(res$color == "grey60", 1.2, 1.5))
 
-
-threshold_FC = 1
-threshold_PVALUE = 0.05
-Genes_Symbol = res$SYMBOL
-Genes_Ensembl = rownames(res)
-log2FoldChange = res$log2FoldChange
-FDR = -10*log10(res$padj)
-
-my.list_UP = as.data.frame(Genes_Symbol)[which(res$log2FoldChange > 0),]
-my.list_DOWN = as.data.frame(Genes_Symbol)[which(res$log2FoldChange < 0),]
-
-gene.selected.UP = intersect(intersect(which(res$SYMBOL %in% my.list_UP), which(res$log2FoldChange >= 1)), which(res$padj <= 0.05))
-gene.selected.DOWN = intersect(intersect(which(res$SYMBOL %in% my.list_DOWN), which(res$log2FoldChange <= -1)), which(res$padj <= 0.05))
-
-cex = rep(1.2, length(Genes_Symbol))
-cex[gene.selected.UP] = 1
-cex[gene.selected.DOWN] = 1
-
-inner = rep("grey60", length(Genes_Symbol))
-inner[gene.selected.UP] = "red4"
-inner[gene.selected.DOWN] = "navy"
-
-boundary = rep("grey", length(Genes_Symbol)) 
-boundary[gene.selected.UP] = "red"
-boundary[gene.selected.DOWN] = "blue"
-
-Matrix = data.frame(SYMBOL = Genes_Symbol, ENSEMBL = Genes_Ensembl, LOG2FOLDCHANGE = log2FoldChange, FDR = FDR, CEX = cex, INNER = inner, BOUNDARY = boundary)
-
-p = plot(Matrix$LOG2FOLDCHANGE, Matrix$FDR, panel.first = grid(), main = "Volcano Plot", xlab = "log2(Fold-Change)", ylab = "-log10(FDR)", cex = Matrix$CEX,
-         pch = 21, col = Matrix$BOUNDARY, bg = Matrix$INNER, xlim = c(-3,3.5))
-abline(v = 0)
-abline(v = c(-threshold_FC, threshold_FC), col = "brown")
-abline(h = -10*log10(threshold_PVALUE), col = "brown")
-
-print_text = FALSE
-UP = as.data.frame(Genes_Symbol)[which(res$log2FoldChange > 1 & res$padj < threshold_PVALUE),]
-DOWN = as.data.frame(Genes_Symbol)[which(res$log2FoldChange < -1 & res$padj < threshold_PVALUE),]
-gene.selected.text = c(UP, DOWN)
-
-if (print_text == TRUE) {
-  gene.selected.text = which(res$SYMBOL %in% gene.selected.text)
-  text(log2FoldChange[gene.selected.text], FDR[gene.selected.text], lab = Genes_Symbol[gene.selected.text], cex = 0.7, pos = 3, font = 2)
-  print(p)
-}  # Salvataggio pdf: 5 y - 7 x ; 900 - 400
-
-# Counts per Million plot 
-cpmx = hgps_dds.cpm["ENSMUSG00000034457",1:12]
-cpmbplot = data.frame(GROUP = c(rep("HGPS",6),rep("WT",6)), EXP = c(as.numeric(as.character(hgps_dds.cpm["ENSMUSG00000034457",1:12]))))
-cpmbplot$GROUP = factor(cpmbplot$GROUP, levels = c("WT", "HGPS"))
-
-p_gene = ggplot(cpmbplot, aes(x=GROUP, y=EXP, fill=GROUP)) +
-  #stat_compare_means(comparisons = my_comparisons) +
-  #scale_shape_manual(name = "df", values = c(21)) +
-  #scale_y_continuous(limits = c(40,180)) + 
-  geom_violin(aes(fill=GROUP), width = 0.4, trim = F) +
-  geom_jitter( aes( fill=GROUP), shape = 21,  size=0.5, alpha=1,  position = position_jitter(width = .04)) +
+# Create the volcano plot
+p <- ggplot(res, aes(x = log2FoldChange, y = FDR, color = border, fill = color, size = size)) +
+  geom_point(shape = 21) +
+  scale_color_identity() +
+  scale_fill_identity() +
+  scale_size_identity() +
   theme_bw() +
-  theme(axis.text.x=element_text(angle=-90,vjust = 0))
-p_gene
+  geom_vline(xintercept = c(-threshold_FC, threshold_FC), col = "brown") +
+  geom_hline(yintercept = -10 * log10(threshold_PVALUE), col = "brown") +
+  labs(title = "Volcano Plot", x = "log2(Fold-Change)", y = "-10 * log10(FDR)") +
+  xlim(-2.75, 4) +  # Set x-axis range
+  geom_text_repel(data = res[res$SYMBOL == "Eda2r", ], aes(label = SYMBOL), 
+                  size = 5, nudge_y = 2, nudge_x = 1, color = "black") +  # Shift label further to the right
+  theme(
+    plot.title = element_text(hjust = 0.5, size = 14),
+    axis.text = element_text(size = 10),
+    axis.title = element_text(size = 12)
+  )
+
+print(p)
 
 ```
 
 <br>
 
-#### Age-associated transcriptional modifications in Gastrocnemius muscle
+```{r hgps_step3, echo=TRUE, warning = FALSE, message = FALSE}
 
-Here we extened correlations analysis to animal models (mouse, rat) using data and annotations from the ***Tabula Muris Senis*** and ***Rat BodyMap*** projects. Comprehensive analyses for all tissue types are included as all data is publiclcy available.
+# Extract CPM values for Eda2r (ENSMUSG00000034457) in the first 12 samples (6 HGPS and 6 WT)
+hgps_dds.cpm <- cpm(hgps_dds, normalized.lib.sizes = TRUE)
+eda2r_cpm <- hgps_dds.cpm["ENSMUSG00000034457", 1:12]
+
+# Create a data frame for plotting
+cpmbplot <- data.frame(
+  GROUP = factor(rep(c("HGPS", "WT"), each = 6), levels = c("WT", "HGPS")),
+  EXP = as.numeric(eda2r_cpm)
+)
+
+# Generate the violin plot
+p_gene <- ggplot(cpmbplot, aes(x = GROUP, y = EXP, fill = GROUP)) +
+  geom_violin(width = 0.4, trim = FALSE) +
+  geom_jitter(shape = 21, size = 2, position = position_jitter(width = 0.1), color = "black") +
+  coord_fixed(ratio = 0.1) +
+  theme_bw() +
+  theme(axis.text.x = element_text(angle = 0, vjust = 0.5))
+p_gene
+```
+
+##### HGPS - Murine keratinocytes (GSE67289)
+
+```{r hgps_step4, echo=TRUE, warning = FALSE, message = FALSE}
+
+# Load series and platform data from GEO
+gset <- getGEO("GSE67289", GSEMatrix = TRUE, AnnotGPL = FALSE)
+if (length(gset) > 1) gset <- gset[[grep("GPL6193", attr(gset, "names"))]] else gset <- gset[[1]]
+
+# Prepare the expression matrix and sample groups
+gsms <- "XXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXXX1111000011110000"
+sml <- strsplit(gsms, split = "")[[1]]
+sel <- which(sml != "X")
+gset <- gset[, sel]
+gs <- factor(sml[sel], labels = c("WT", "HGPS"))
+gset$group <- gs
+gset$TP <- rep(c("T24", "T32"), each = 8)
+
+# Adjust for batch effect
+ex <- exprs(gset)
+batchcov <- model.matrix(~ 0 + group, data = gset)
+gs_expr_adj <- removeBatchEffect(ex, batch = gset$TP, design = batchcov)
+
+# Differential expression analysis with limma
+design <- model.matrix(~ 0 + group + TP, gset)
+colnames(design) <- c("WT", "HGPS", "TP")
+fit <- lmFit(gset, design)
+HGPSvsWT <- makeContrasts(HGPS - WT, levels = design)
+fit2 <- eBayes(contrasts.fit(fit, HGPSvsWT))
+tT <- topTable(fit2, adjust = "fdr", sort.by = "B", number = Inf)
+
+# Extract all the Eda2r probes from DE-results
+eda2r_probes <- rownames(tT[grep("Eda2r", tT$gene_assignment), ])
+
+# Summarize expression levels
+gs_annot <- data.frame(
+  GROUP = factor(rep(c("HGPS", "WT"), each = 4, times = 2), levels = c("WT", "HGPS")),
+  TP = rep(c("T24", "T32"), each = 8),
+  Eda2r_adj = colMedians(gs_expr_adj[eda2r_probes, ])
+)
+
+# Create the box plot
+my_comparisons <- list(c("HGPS", "WT"))
+p1 <- ggplot(gs_annot, aes(y = Eda2r_adj, x = GROUP, fill = GROUP)) +
+  geom_half_violin(trim = FALSE, scale = "width", draw_quantiles = FALSE, side = "r") +
+  geom_boxplot(fill = "white") +
+  geom_point(size = 3.5, color = "black", fill = "white", pch = 21, stroke = 0.5) +  # Black dots with white border
+  stat_compare_means(comparisons = my_comparisons, color = "black", bracket.size = 0.5) +
+  coord_fixed(ratio = 2) + 
+  theme_bw() +
+  scale_fill_manual(values = c("WT" = "green4", "HGPS" = "violetred")) +  # Violin colors as in the figure
+  scale_x_discrete(labels = c("WT", "LMNA-G609G")) +  # Custom labels for the x-axis
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = NA, color = "black", size = 1),
+    axis.text = element_text(size = 10, face = "plain"),
+    axis.title = element_text(size = 12, face = "plain", family = "Arial"),
+    axis.ticks.x = element_line(color = "black")
+  )
+
+p1
+```
+
+##### HGPS - murine Adipocytes (GSE51203)
+
+```{r hgps_step5, echo=TRUE, warning = FALSE, message = FALSE}
+
+# Load series and platform data from GEO
+gset <- getGEO("GSE51203", GSEMatrix = TRUE, AnnotGPL = TRUE)
+if (length(gset) > 1) gset <- gset[[grep("GPL6096", attr(gset, "names"))]] else gset <- gset[[1]]
+
+# Prepare the expression matrix and sample groups
+gsms <- "000111222"
+sml <- strsplit(gsms, split = "")[[1]]
+gs <- factor(sml, levels = c("0", "2", "1"), labels = c("WT", "LCS", "G609G"))  # Reorder and relabel the groups
+gset$group <- gs
+
+# Log2 transformation if necessary
+ex <- exprs(gset)
+qx <- as.numeric(quantile(ex, c(0., 0.25, 0.5, 0.75, 0.99, 1.0), na.rm = TRUE))
+if ((qx[5] > 100) || (qx[6] - qx[1] > 50 && qx[2] > 0)) {
+  ex[which(ex <= 0)] <- NaN
+  exprs(gset) <- log2(ex)
+}
+
+# Differential expression analysis with limma
+design <- model.matrix(~ 0 + group, data = gset)
+colnames(design) <- levels(gs)
+fit <- lmFit(gset, design)
+cts <- c("G609G-WT", "LCS-WT", "G609G-LCS")
+cont.matrix <- makeContrasts(contrasts = cts, levels = design)
+fit2 <- contrasts.fit(fit, cont.matrix)
+fit2 <- eBayes(fit2)
+tT <- topTable(fit2, adjust = "fdr", sort.by = "B", number = Inf)
+
+# Extract all the Eda2r probes from DE-results
+eda2r_probes <- rownames(tT[grep("Eda2r", tT$gene_assignment), ])
+
+# Summarize expression levels
+gs_annot <- data.frame(
+  GROUP = gs,
+  Eda2r = colMedians(exprs(gset)[eda2r_probes, ])
+)
+
+# Combine WT and LCS into one group for the Wilcoxon test
+gs_annot$Combined_Group <- factor(ifelse(gs_annot$GROUP %in% c("WT", "LCS"), "Non_G609G", "G609G"))
+
+# Perform Wilcoxon test between the combined group (WT + LCS) and G609G
+wilcox_test <- wilcox.test(gs_annot$Eda2r ~ gs_annot$Combined_Group)
+wilcox_pvalue <- signif(wilcox_test$p.value, digits = 3)
+
+# Create the box plot with the original 3 groups
+p1 <- ggplot(gs_annot, aes(y = Eda2r, x = GROUP, fill = GROUP)) +
+  geom_half_violin(trim = TRUE, scale = "width", draw_quantiles = FALSE, side = "r") +
+  geom_boxplot(fill = "white") +
+  geom_point(size = 3.5, fill = "black", color = "white", pch = 21, stroke = 0.5) +  # Black dots with white border
+  coord_fixed(ratio = 2) + 
+  theme_bw() +
+  scale_fill_manual(values = c("WT" = "green4", "LCS" = "lightgreen", "G609G" = "violetred")) +  # Adjust colors
+  scale_x_discrete(labels = c("WT", "LCS", "G609G")) +  # Custom labels for the x-axis
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = NA, color = "black", size = 1),
+    axis.text = element_text(size = 10, face = "plain"),
+    axis.title = element_text(size = 12, face = "plain", family = "Arial"),
+    axis.ticks.x = element_line(color = "black")
+  )
+
+# Add the Wilcoxon p-value as a label
+p1 <- p1 + annotate("text", x = 2, y = max(gs_annot$Eda2r) + 0.5, 
+                    label = paste("p =", wilcox_pvalue), 
+                    size = 5, hjust = 0.5)
+
+p1
+```
+
+
+#### Age-associated transcriptional modifications in Skeletal muscle muscle
+
+Here we extened correlations analysis to humans (muscle biopsy study - FUSION) and other animal models (mouse, rat) using data and annotations from the ***Tabula Muris Senis*** and ***Rat BodyMap*** projects. Comprehensive analyses for all tissue types are included as all data is publiclcy available.
+
+
+##### Homo Sapiens (phs001048) - vastus lateralis
+```{r sk_step1, echo=TRUE, warning = FALSE, message = FALSE}
+
+# Load table
+vastus = read.table("data/human/phs001048.txt", header = T, sep = "\t")
+
+# Rename the columns for easier access
+colnames(vastus) <- c("Dataset", "Subject_ID", "EDA2R_expression", "Age", "AGE_GROUP", "Sex", "BMI", "Smoking_status")
+
+# Set the age groups order for plotting
+vastus$AGE_GROUP <- factor(vastus$AGE_GROUP, levels = c("20-40", "41-50", "51-60", "61-80"))
+
+# Define comparisons for stat_compare_means
+my_comparisons <- list(c("20-40", "41-50"), c("41-50", "51-60"), c("51-60", "61-80"), c("20-40", "61-80"))
+
+# Define a color gradient for the groups
+color_gradient <- c("20-40" = "pink", "41-50" = "lightcoral", "51-60" = "red", "61-80" = "darkred")
+
+# Create the plot
+p_vastus <- ggplot(vastus, aes(x = AGE_GROUP, y = EDA2R_expression, fill = AGE_GROUP)) +
+  geom_half_violin(trim = TRUE, scale = "width", draw_quantiles = FALSE, side = "r", width = 0.5) +
+  geom_half_boxplot(side = "l", width = 0.5, color = "black", outlier.shape = NA) +  # Exclude outliers
+  geom_half_point(position = position_jitter(width = 0.1), size = 0.5, color = "black", fill = "black", shape = 21) +  # Points on the right side
+  stat_compare_means(comparisons = my_comparisons, method = "wilcox.test", label = "p.format", p.adjust.method = "fdr", hide.ns = TRUE) +
+  theme_bw() +
+  labs(y = expression(italic("EDA2R") * " expression [TPM]"), x = NULL) +
+  scale_x_discrete(labels = c("20-40\nyrs", "41-50\nyrs", "51-60\nyrs", "61-80\nyrs")) +  # Custom x-axis labels
+  scale_fill_manual(values = color_gradient) +  # Color gradient for the groups
+  theme(
+    panel.grid = element_blank(),
+    panel.background = element_rect(fill = NA, color = "black", size = 1),
+    axis.text = element_text(size = 10, face = "plain"),
+    axis.title.y = element_text(size = 12, face = "plain", family = "Arial", hjust = 0.5),
+    axis.ticks.x = element_line(color = "black"),
+    axis.text.x = element_text(size = 12, face = "plain", family = "Arial", hjust = 0.5),
+    legend.position = "none"
+  ) +
+  coord_fixed(ratio = 1.5)  # Compress the x-axis
+
+# Display the plot
+p_vastus
+
+```
+
 
 ##### Mus Musculus (GSE52550)
 
-```{r am_step6, echo=TRUE, warning = FALSE, message = FALSE}
-
-mus_gm_annot = read.table("./data/mouse/GSE52550_RAW/GSE52550_annotations.txt", sep = "\t", stringsAsFactors = F, header = T, row.names = 1)
-mus_gm_annot = mus_gm_annot[which(mus_gm_annot$Genotype=="WT"),]
-targets <- rownames(mus_gm_annot)
-
-ab <- ReadAffy(filenames = targets, celfile.path = "./data/mouse/GSE52550_RAW/")
-mus_gm_eset <- gcrma(ab)
-mus_gm_exp = exprs(mus_gm_eset)
-
-EDA2R.df = data.frame(GROUP = c(rep("YOUNG",3), rep("OLD",3)), EXP = 2^mus_gm_exp["1440085_at",])
-EDA2R.df$GROUP = factor(EDA2R.df$GROUP, levels = c("YOUNG","OLD"))
-
-p_gene = ggplot(EDA2R.df, aes(x=GROUP, y=EXP, fill=GROUP)) +
-  geom_boxplot(aes(fill=GROUP), width = 0.20, outlier.size =0) +
-  geom_jitter( aes( fill=GROUP), shape = 21,  size=2, alpha=1,  position = position_jitter(width = .1)) +
-  theme_bw() +
-  theme(axis.text.x=element_text(angle=-90,vjust = 0))
-p_gene
-
-### BOXPLOT
-
+```{r sk_step2, echo=TRUE, warning = FALSE, message = FALSE}
 # load series and platform data from GEO
 gset <- getGEO("GSE52550", GSEMatrix =TRUE, AnnotGPL=TRUE)
 if (length(gset) > 1) idx <- grep("GPL1261", attr(gset, "names")) else idx <- 1
@@ -791,48 +1070,124 @@ gset$group <- gs
 design <- model.matrix(~group + 0, gset)
 colnames(design) <- levels(gs)
 
-gset <- gset[complete.cases(exprs(gset)), ] # skip missing values
-
-fit <- lmFit(gset, design)  # fit linear model
-
-# set up contrasts of interest and recalculate model coefficients
-cts <- paste(groups[1], groups[2], sep="-")
-cont.matrix <- makeContrasts(contrasts=cts, levels=design)
-fit2 <- contrasts.fit(fit, cont.matrix)
-
-# compute statistics and table of top significant genes
+# Fit linear model and calculate statistics
+fit <- lmFit(gset, design)
+cts <- makeContrasts(OLD - YOUNG, levels = design)
+fit2 <- contrasts.fit(fit, cts)
 fit2 <- eBayes(fit2, 0.01)
-tT <- topTable(fit2, adjust="fdr", sort.by="B", number=Inf)
-tT <- subset(tT, select=c("adj.P.Val","P.Value","t","B","logFC", "Gene.symbol"))
+tT <- topTable(fit2, adjust = "fdr", sort.by = "B", number = Inf)
+tT <- subset(tT, select = c("adj.P.Val", "P.Value", "t", "B", "logFC", "Gene.symbol"))
 
-eda2r_rank = which(rownames(tT)=="1440085_at")
+# Prepare data for plotting
+tT$rklogSIG <- -10 * log10(tT$adj.P.Val) * sign(tT$logFC)
+tT <- tT[order(tT$rklogSIG, decreasing = TRUE), ]
+tT$posrank <- seq_len(nrow(tT))
+tT$GROUP <- "OLD.vs.YNG"
 
-tT$rklogSIG = -10*log10(tT$adj.P.Val)*sign(tT$logFC)
-tT = tT[order(tT$rklogSIG, decreasing = T),]
-tT$posrank = seq(1:nrow(tT))
-tT$GROUP = "OLD.vs.YNG"
+# Eda2r specific data
+eda2r_data <- tT[rownames(tT) == "1440085_at", ]
+logFC_label <- paste0("log2FC = ", round(eda2r_data$logFC, 2))
+rank_label <- paste0("Rank: ", eda2r_data$posrank, "/", nrow(tT))
 
-tT.eda2r = tT[which(rownames(tT)=="1440085_at"),]
-  
-p_gene = ggplot(tT, aes(x=GROUP, y=rklogSIG, fill=GROUP)) +
-  geom_violin(aes(fill=GROUP), width = 0.4, trim = F) +
-  geom_boxplot(aes(fill=GROUP), width = 0.08, outlier.size =1) +
-  geom_point(data = tT.eda2r, aes(x = GROUP, y = rklogSIG), fill = "yellow", color = "black", shape = 21, stroke = 1, size=8) +
+# Create the plot
+p_gene <- ggplot(tT, aes(x = GROUP, y = rklogSIG)) +
+  geom_violin(width = 0.4, trim = FALSE, fill = "grey80", color = "black") +
+  geom_boxplot(width = 0.08, outlier.size = 1, fill = "white", color = "black") +
+  geom_point(data = eda2r_data, fill = "yellow", color = "black", shape = 21, stroke = 1, size = 8) +
+  geom_text_repel(data = eda2r_data, aes(x = GROUP, y = rklogSIG), label = paste0("Eda2r\n1440085_at\n",logFC_label,"\n",rank_label), nudge_x = 1, nudge_y = 6, size = 5, fontface = "italic") +
+  # geom_text(aes(x = 1, y = 29), label = paste(logFC_label, rank_label, fdr_label, sep = "\n"), size = 5, hjust = 0, vjust = 1) +
+  labs(y = expression(Significance ~ "[-10 x log"[10] ~ "FDR]"), x = NULL) +
   theme_bw() +
-  theme(axis.text.x=element_text(angle=-90,vjust = 0))
+  coord_fixed(ratio = 0.02) + # Compress the x-axis
+  theme(
+    axis.text.x = element_text(size = 12, face = "bold"),
+    axis.title.y = element_text(size = 14, face = "bold"),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    axis.ticks.x = element_blank(),
+    legend.position = "none"
+  ) +
+  geom_hline(yintercept = 10 * log10(0.05), linetype = "dashed", color = "blue") +
+  geom_hline(yintercept = -10 * log10(0.05), linetype = "dashed", color = "red")
+
+# Display the plot
 p_gene
 ```
 
-<br>
+```{r sk_step3, echo=TRUE, warning = FALSE, message = FALSE}
+
+# Load data and prepare the expression set
+mus_gm_annot = read.table("./data/mouse/GSE52550_RAW/GSE52550_annotations.txt", sep = "\t", stringsAsFactors = F, header = T, row.names = 1)
+mus_gm_annot = mus_gm_annot[which(mus_gm_annot$Genotype=="WT"),]
+targets <- rownames(mus_gm_annot)
+
+ab <- ReadAffy(filenames = targets, celfile.path = "./data/mouse/GSE52550_RAW/")
+mus_gm_eset <- gcrma(ab)
+mus_gm_exp = exprs(mus_gm_eset)
+
+# Prepare the data frame
+EDA2R.df <- data.frame(GROUP = c(rep("YOUNG", 3), rep("OLD", 3)), EXP = 2^mus_gm_exp["1440085_at", ])
+EDA2R.df$GROUP <- factor(EDA2R.df$GROUP, levels = c("YOUNG", "OLD"))
+
+# Retrieve q-value computed for Eda2r
+fdr_label_eda2r <- paste0("FDR = ", formatC(eda2r_data$adj.P.Val, format = "e", digits = 2))
+
+# Create the plot
+p_gene <- ggplot(EDA2R.df, aes(x = GROUP, y = EXP, fill = GROUP)) +
+  geom_boxplot(width = 0.20, outlier.size = 0, color = "black") +
+  geom_jitter(aes(fill = GROUP), shape = 21, size = 2.5, color = "black", position = position_jitter(width = 0.1)) +
+  scale_fill_manual(values = c("YOUNG" = "lightgrey", "OLD" = "firebrick3")) +  # Adjust colors for the groups
+  theme_bw() +
+  labs(y = expression(italic("Eda2r") ~ expression ~ "[A.U.]"), x = NULL) +  # Adjust axis labels
+  theme(
+    axis.title.y = element_text(size = 14, face = "bold"),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    axis.ticks.x = element_blank(),
+    axis.text.x = element_text(size = 12, face = "bold", angle = 0, hjust = 0.5),
+    legend.position = "none"
+  ) +
+  coord_fixed(ratio = 0.001) + # Compress the x-axis
+  annotate("text", x = 1.5, y = max(EDA2R.df$EXP) * 1.1, label = fdr_label_eda2r, size = 5, hjust = 0.5)  # Annotate with q-value
+
+p_gene
+
+```
+
+
 
 ##### Rattus Norvegicus (GSE52550)
 
-```{r mm_step1, echo=TRUE, warning = FALSE, message = FALSE}
+```{r sk_step4, echo=TRUE, warning = FALSE, message = FALSE}
 
-rat_ge_eda2r = read.table("./data/rat/PRJNA516151/eda2r_exp.txt", sep = "\t", stringsAsFactors = F, header = T, row.names = 1)
+# Load the data
+rat_ge_eda2r <- read.table("./data/rat/PRJNA516151/eda2r_exp.txt", sep = "\t", stringsAsFactors = FALSE, header = TRUE, row.names = 1)
 
-par(mar=c(7.5,4,1,1))
-barplot(height=rat_ge_eda2r$log2, names=rownames(rat_ge_eda2r), col=c("#ffffff","#dbdbdb", "#bcbcbb", "#929292", "#5a5a5a", "#353535"), las = 2)
+# Set up colors: shades of red
+color_shades <- c("#f4cccc", "#ea9999", "#e06666", "#cc0000", "#990000", "#660000")
+
+# Create the bar plot
+p_bar <- ggplot(rat_ge_eda2r, aes(x = rownames(rat_ge_eda2r), y = log2, fill = rownames(rat_ge_eda2r))) +
+  geom_bar(stat = "identity", color = "black", width = 0.5) +  # Reduce the width of the bars to compress the x-axis
+  scale_fill_manual(values = color_shades) +
+  theme_bw() +
+  labs(y = expression(italic("Eda2r") ~ "log"[2] ~ "FC vs baseline [6 months]"), x = NULL) +
+  theme(
+    axis.text.x = element_text(size = 12, face = "bold", angle = 45, hjust = 1),
+    axis.title.y = element_text(size = 14, face = "bold"),
+    panel.grid = element_blank(),
+    panel.border = element_rect(color = "black", fill = NA, size = 1),
+    legend.position = "none"
+  ) +
+  scale_x_discrete(labels = c("9 mths", "12 mths", "18 mths", "21 mths", "24 mths", "27 mths")) +
+  geom_text(aes(label = ifelse(fdr < 0.05, paste0("q=", formatC(fdr, format = "e", digits = 1)), ifelse(log2 < 0, "ns", "ns"))), 
+            vjust = ifelse(rat_ge_eda2r$log2 < 0, -2, -0.5), size = 3, color = "black", fontface = "bold") +  # Adjust position for "ns"
+  ylim(-0.5, 4) +  # Adjust the y-axis to accommodate the labels
+  geom_hline(yintercept = 0, color = "black", linetype = "solid", size = 0.5) +  # Add the intercept line at y=0
+  coord_fixed(ratio = 1.5)  # Compress the x-axis by increasing the aspect ratio
+
+# Display the plot
+p_bar
 ```
 
 <br>
