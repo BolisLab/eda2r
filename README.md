@@ -1,14 +1,14 @@
 README
 ================
 BOLIS M
-2023-08-13
+2024-12-04
 
 ## Aditional information
 
 This R Markdown document contains code to reproduce the analyses
-performed in our manuscript entitled **Increase of
-Ectodysplasin-A2-Receptor EDA2R in Aging: A Ubiquitous Hallmark and
-Mediator of Parainflammatory Responses** from *Barbera et al*.
+performed in our manuscript entitled **Increased
+Ectodysplasin-A2-Receptor EDA2R is a Ubiquitous Hallmark of Aging and
+Mediates Parainflammatory Responses** from *Barbera et al*.
 
 ### <br>
 
@@ -239,7 +239,7 @@ gridExtra::grid.arrange(grobs = pcaplot, nrow = 1, ncol = 2, gp = gpar(fontsize 
 
 ##### <br>
 
-##### Perform correlations (adipose tissue)
+##### Perform correlations (adipose tissue) / without cross-validation
 
 Correlations are computed using using Pearson’s and Spearman’s methods.
 
@@ -318,19 +318,142 @@ adipose$permutedP = adipose.pperm
 
 ##### <br>
 
-##### Saving correlation results + permutations (adipose tissue)
+##### Perform correlations (adipose tissue) / outlier removal + 10 times repeated Leave-Half-Out (LHO) cross-validation procedure
+
+Correlations are computed using Spearman’s methods in LHO subsets,
+outliers (+/- 3SD deviation from mean) are discared.
 
 ``` r
-save(adipose, file = "adipose.RData") # Pearson's
-save(adipose_sp, file = "adipose_sp.RData") # Spearman's 
+#Load gene expression matrix (genes in rows, samples in columns)
+TRAIN = assay(adipose.vst)
+
+# Reads age for each sample
+AGES = adipose_samples[colnames(GEX),]$AGE
+
+# fetching gene annotations
+symbols <- mapIds(org.Hs.eg.db,
+                  keys = row.names(TRAIN),
+                  column = "SYMBOL",
+                  keytype = "ENSEMBL",
+                  multiVals = "first"
+)
+entrez <- mapIds(org.Hs.eg.db,
+                 keys = row.names(TRAIN),
+                 column = "ENTREZID",
+                 keytype = "ENSEMBL",
+                 multiVals = "first")
+description <- mapIds(org.Hs.eg.db,
+                      keys = row.names(TRAIN),
+                      column = "GENENAME",
+                      keytype = "ENSEMBL",
+                      multiVals = "first")
+# columns(org.Hs.eg.db)
+gene_annot = data.frame(row.names =  rownames(GEX), SYMBOL = symbols, ENTREZ=entrez, NAME = description)
+
+# Define the dimensions for 10 times repeated leave-half-out cross-validation
+train_size = dim(TRAIN)[2]  # Total size of dataset
+lho_size = round(train_size / 2, digits = 0)  # 50% of samples for each subset
+count = dim(TRAIN)[1]  # Total number of genes
+
+# Create data frame for age data
+TRAIN.ANNOT = data.frame(AGE = AGES, log2AGE = log2(1 + AGES), stringsAsFactors = FALSE, row.names = colnames(TRAIN))
+
+# Initialize lists for storing results
+TRAIN_SETS <- list()
+TRAIN_SETS.ANNOT <- list()
+CORRTEST <- list()
+COEFS <- list()
+PVALS <- list()
+
+# Generate 10 random LHO sets (leave-half-out)
+set.seed(1000)  # Set a seed for reproducibility
+LHO_SETS <- lapply(1:10, function(i) sample(1:train_size, size = lho_size, replace = FALSE))
+
+# Progress bar initialization
+pb <- txtProgressBar(min = 0, max = 10, initial = 0, char = "=", width = NA, style = 3)
+
+# For each gene, compute Spearman's correlation with age in each LHO subset, excluding outliers
+for (i in 1:10) {
+  setTxtProgressBar(pb, i)
+  
+  # Subset the TRAIN data and corresponding age for current LHO set
+  TRAIN_SETS[[i]] <- TRAIN[, LHO_SETS[[i]]]
+  TRAIN_SETS.ANNOT[[i]] <- TRAIN.ANNOT[colnames(TRAIN_SETS[[i]]), ]
+  
+  # Apply correlation test for each gene
+  results <- apply(TRAIN_SETS[[i]], 1, function(gene_expression) {
+    
+    # Calculate mean and standard deviation for the gene
+    gene_mean <- mean(gene_expression, na.rm = TRUE)
+    gene_sd <- sd(gene_expression, na.rm = TRUE)
+    
+    # Identify non-outliers (within 3 standard deviations from the mean)
+    non_outliers <- abs(gene_expression - gene_mean) <= (3 * gene_sd)
+    
+    # Perform Spearman correlation on non-outliers
+    if (sum(non_outliers) > 2) {  # Ensure enough non-outlier samples
+      cor_test_result <- cor.test(gene_expression[non_outliers], TRAIN_SETS.ANNOT[[i]]$log2AGE[non_outliers], method = "spearman")
+      return(c(cor_test_result$estimate, cor_test_result$p.value))  # Return both estimate and p-value
+    } else {
+      return(c(NA, NA))  # Return NA if too few non-outlier samples
+    }
+  })
+  
+  # Store correlation coefficients and p-values
+  COEFS[[i]] <- results[1, ]  # Spearman correlation coefficient
+  PVALS[[i]] <- results[2, ]  # p-value
+}
+
+# Combine the correlation coefficients and p-values across the 10 subsets
+coeftable <- do.call(cbind, COEFS)
+pvaltable <- do.call(cbind, PVALS)
+
+# Assign names to the columns for clarity
+colnames(coeftable) <- paste0("REP", seq(1:10))
+colnames(pvaltable) <- paste0("REP", seq(1:10))
+
+# Calculate mean and median values for correlation coefficients and p-values
+mean_coeftable <- rowMeans(coeftable, na.rm = TRUE)
+mean_pvaltable <- rowMeans(pvaltable, na.rm = TRUE)
+
+median_coeftable <- rowMedians(coeftable, na.rm = TRUE)
+median_pvaltable <- rowMedians(pvaltable, na.rm = TRUE)
+
+# Create the final correlation table with annotated gene information
+corr_table <- data.frame(
+  coef_mean = mean_coeftable,
+  pvalue_mean = mean_pvaltable,
+  coef_median = median_coeftable,
+  pvalue_median = median_pvaltable,
+  SYMBOL = gene_annot[rownames(coeftable), "SYMBOL"],
+  ENTREZ = gene_annot[rownames(coeftable), "ENTREZ"],
+  stringsAsFactors = FALSE
+)
+
+# Filter out rows with missing SYMBOL or p-value
+corr_table <- corr_table[!is.na(corr_table$SYMBOL) & !is.na(corr_table$pvalue_mean | corr_table$pvalue_median), ]
+
+# Calculate FDR-adjusted p-values
+corr_table$FDR_mean = p.adjust(corr_table$pvalue_mean, method = 'fdr')
+corr_table$FDR_median = p.adjust(corr_table$pvalue_median, method = 'fdr')
+
+# Sort the table by correlation coefficients in decreasing order
+adipose_mean_corr_table <- corr_table[order(corr_table$coef_mean, decreasing = TRUE), ]
+```
+
+##### Saving LHO correlation results (adipose tissue)
+
+``` r
+saveRDS(adipose_mean_corr_table, file = "adipose_mean_corr_table.RDS")
+# The result is the sorted table with correlation coefficients, p-values, and FDR values
 ```
 
 All the above examples are for adipose tissue. You can find
-gene-expression, sample annotation and correlation results for each
-tissue-type tested in the `./data/byTissue` folder. Age of individuals
-is not provided in the annotation files because the **exact age** of
-individuals is <u>**not publicly available**</u> from *GTEX*, and access
-needs to be requested to *dbGap*.
+gene-expression, sample annotation and LHO correlation results for each
+tissue-type tested in the `./data/human/correlations` folder. Age of
+individuals is not provided in the annotation files because the **exact
+age** of individuals is <u>**not publicly available**</u> from *GTEX*,
+and access needs to be requested to *dbGap*.
 
 <br>
 
@@ -345,14 +468,13 @@ data_path <- "./data/human/correlations/"
 # List of tissues
 tissues <- c("adipose", "adrenal", "brain", "breast", "colon", "esophagus", 
              "heart", "kidney", "liver", "lung", "muscle", "nerve", "ovary", 
-             "pancreas", "pituitary", "prostate", "skin", "smallint", 
+             "pancreas", "pituitary", "prostate", "skin", "salivary", "smallint", 
              "spleen", "stomach", "testis", "thyroid", "uterus", "vagina", 
              "vessel")
 
 # Load the data and create the COR object
 COR <- lapply(tissues, function(tissue) {
-  load(file.path(data_path, paste0(tissue, ".RData")))
-  get(tissue)
+  readRDS(file.path(data_path, paste0(tissue, "_mean_corr_table.RDS")))
 })
 
 # Use the row names from the first tissue (adipose) as the reference
@@ -364,10 +486,10 @@ COR <- lapply(COR, function(matrix) {
 })
 names(COR) <- tissues
 
-# Create the data frame by extracting the 'coef' column from each element of COR
+# Create the data frame by extracting the 'coef_mean' column from each element of COR
 df <- data.frame(
   row.names = rownames(COR$adipose),
-  lapply(COR, function(x) x$coef)
+  lapply(COR, function(x) x$coef_mean)
 )
 
 # Rename the columns of the data frame to match the tissue names in uppercase
@@ -402,7 +524,7 @@ p_gene <- ggplot(bplot, aes(x=as.factor(TISSUE), y=GENES)) +
              color = "black", shape = 21, size = 3, stroke = 0.3, fill = "yellow", alpha = 1, 
              position = position_jitter(width = 0.1)) + # Slight jitter to avoid overlap with box edges
   # Set custom axis titles
-  labs(y = "Pearson's correlation coefficient (r)", x = "") +
+  labs(y = "Average Spearman's correlation (rho) - LHO", x = "") +
   
   theme_bw() +
   theme(
@@ -422,24 +544,24 @@ p_gene
 ![](README_files/figure-gfm/hs_step1-1.png)<!-- -->
 
 ``` r
-corr_median = rowMedians(as.matrix(df))
-names(corr_median) = rownames(df)
-corr_median = corr_median[order(corr_median)]
-corr_median = corr_median[which(!is.na(corr_median))]
+corr_mean = rowMeans(as.matrix(df))
+names(corr_mean) = rownames(df)
+corr_mean = corr_mean[order(corr_mean)]
+corr_mean = corr_mean[which(!is.na(corr_mean))]
 
 # Prepare the data
-corr_median_df <- data.frame(
-    Gene = names(corr_median),
-    Value = corr_median,
-    AbsValue = abs(corr_median),
-    Sign = ifelse(corr_median < 0, "negative", "positive")
+corr_mean_df <- data.frame(
+    Gene = names(corr_mean),
+    Value = corr_mean,
+    AbsValue = abs(corr_mean),
+    Sign = ifelse(corr_mean < 0, "negative", "positive")
 )
 
 # Create a sequence for the x-axis
-corr_median_df$Index <- seq(1, nrow(corr_median_df))
+corr_mean_df$Index <- seq(1, nrow(corr_mean_df))
 
 # Highlight specific genes with custom colors and settings
-highlight_data <- corr_median_df %>% 
+highlight_data <- corr_mean_df %>% 
     filter(Gene %in% c("ENSG00000131080", "ENSG00000135960", "ENSG00000158813")) %>%
     mutate(
         fill = case_when(
@@ -455,7 +577,7 @@ highlight_data <- corr_median_df %>%
     )
 
 # Create the plot
-p_corr_median <- ggplot(corr_median_df, aes(x = Index, y = AbsValue)) +
+p_corr_mean <- ggplot(corr_mean_df, aes(x = Index, y = AbsValue)) +
     geom_point(aes(
         color = Sign,
         fill = Sign,
@@ -479,11 +601,11 @@ p_corr_median <- ggplot(corr_median_df, aes(x = Index, y = AbsValue)) +
         aspect.ratio = 1.5  # Adjust the ratio; higher values compress the x-axis
     ) +
     labs(
-        title = "Absolute Values of corr_median",
+        title = "Absolute Values of corr_mean",
         x = "Gene Index",
-        y = "Absolute Value of median Pearson's correlation coefficient"
+        y = "Absolute Value of mean Pearson's correlation coefficient"
     )
-p_corr_median
+p_corr_mean
 ```
 
 ![](README_files/figure-gfm/hs_step2-1.png)<!-- -->
@@ -1068,12 +1190,21 @@ my_comparisons <- list(c("20-40", "41-50"), c("41-50", "51-60"), c("51-60", "61-
 # Define a color gradient for the groups
 color_gradient <- c("20-40" = "pink", "41-50" = "lightcoral", "51-60" = "red", "61-80" = "darkred")
 
+# Compute p-values for each pair of groups
+p_values <- map_dbl(my_comparisons, function(groups) {
+  group1 <- vastus %>% filter(AGE_GROUP == groups[1]) %>% pull(EDA2R_expression)
+  group2 <- vastus %>% filter(AGE_GROUP == groups[2]) %>% pull(EDA2R_expression)
+  wilcox.test(group1, group2)$p.value
+})
+
+# Adjust p-values for multiple comparisons using FDR
+adjusted_p_values <- p.adjust(p_values, method = "fdr")
+
 # Create the plot
 p_vastus <- ggplot(vastus, aes(x = AGE_GROUP, y = EDA2R_expression, fill = AGE_GROUP)) +
-  geom_half_violin(trim = TRUE, scale = "width", draw_quantiles = FALSE, side = "r", width = 0.5) +
+  geom_half_violin(trim = FALSE, scale = "width", draw_quantiles = FALSE, side = "r", width = 0.5) +
   geom_half_boxplot(side = "l", width = 0.5, color = "black", outlier.shape = NA) +  # Exclude outliers
   geom_half_point(position = position_jitter(width = 0.1), size = 0.5, color = "black", fill = "black", shape = 21) +  # Points on the right side
-  stat_compare_means(comparisons = my_comparisons, method = "wilcox.test", label = "p.format", p.adjust.method = "fdr", hide.ns = TRUE) +
   theme_bw() +
   labs(y = expression(italic("EDA2R") * " expression [TPM]"), x = NULL) +
   scale_x_discrete(labels = c("20-40\nyrs", "41-50\nyrs", "51-60\nyrs", "61-80\nyrs")) +  # Custom x-axis labels
