@@ -10,6 +10,23 @@ performed in our manuscript entitled **Increased
 Ectodysplasin-A2-Receptor EDA2R is a Ubiquitous Hallmark of Aging and
 Mediates Parainflammatory Responses** from *Barbera et al*.
 
+---
+### <ins> Supplementary Tables (Excel files)</ins> - can be found in the **SupplementaryTables** folder: ###
+##### **SuppTable 1:** Spearman's correlation coefficients between gene-expression and age of donor (10-fold LHO resampling).
+##### **SuppTable 2:** contains p-values determined from n=1000 permutations (correlations between gene-expression and age).
+##### **SuppTable 3:** contains Pearson's coefficients between gene-expression and age of mice across 14 different tissues. <br>
+##### **SuppTable 4:** contains Pearson's coefficients between gene-expression and age of rats across 11 different tissues. <br>
+##### **SuppTable 5:** DE results of HGPS mouse models compared to aged-matched WT counterpart (aortic artery - GSE165409).<br>
+##### **SuppTable 6:** EDA2R mRNA expression in human vastus lateralis muscle samples from dbGap (phs001048).<br>
+##### **SuppTable 7:** DE results from microarray experiment (GSE52550), comparing the gastrocnemius of aged vs young mice <br>
+##### **SuppTable 8:** DE results (GSE53960) of Eda2r expression changes in gastrocnemius of aged rats versus baseline <br>
+##### **SuppTable 9:** murine C2C12 myoblasts transfected with Eda2r vs matched controls (GFP)<br>
+##### **SuppTable 10:** murine C2C12-derived myotubes overexpressing Eda2r vs matched controls (GFP)<br>
+##### **SuppTable 11:** human primary myoblasts transfected with EDA2R vs matched controls (GFP)<br>
+##### **SuppTable 12:** human primary myoblasts supplemented with EDA-A2 vs vehicle<br>
+##### **SuppTable 13:** isoform-level expression of EDA-A2 quantified in GSE107011 (Monaco et al) - 29 blood cell types.<br>
+---
+
 ### <br>
 
 ### Loading required libraries
@@ -77,6 +94,7 @@ used for downstream analysis (correlation coefficients/p-values).
 ##### Import and normalize data (adipose tissue)
 
 ``` r
+# Please decompress the adipose_rawcounts.txt.zip file (GitHub repository)
 adipose_samples = read.table(file = "./data/adipose_samples.txt", sep = "\t", header = T, row.names = 1)
 adipose_rawcounts = read.table(file = "./data/adipose_rawcounts.txt", sep = "\t", header = T, row.names = 1, check.names = F)
 adipose.rawcounts = adipose_rawcounts[,rownames(adipose_samples)]
@@ -621,6 +639,7 @@ included as all data is publiclcy available.
 
 ``` r
 # Import raw count matrix and discard samples with < 2M reads mapped to genes
+# Please decompress the mus_rawcounts.txt.zip file (GitHub repository)
 mus.rawcounts <- read.table(file = "./data/mouse/mus_rawcounts.txt", header = TRUE, row.names = 1)
 samples2keep <- colnames(mus.rawcounts)[colSums(mus.rawcounts) > 2e6]
 mus.rawcounts <- mus.rawcounts[, samples2keep]
@@ -1179,7 +1198,7 @@ publiclcy available.
 vastus = read.table("data/human/phs001048.txt", header = T, sep = "\t")
 
 # Rename the columns for easier access
-colnames(vastus) <- c("Dataset", "Subject_ID", "EDA2R_expression", "Age", "AGE_GROUP", "Sex", "BMI", "Smoking_status")
+colnames(vastus) <- c("Dataset", "Subject_ID", "EDA2R_expression", "AGE_GROUP", "Sex", "BMI", "Smoking_status")
 
 # Set the age groups order for plotting
 vastus$AGE_GROUP <- factor(vastus$AGE_GROUP, levels = c("20-40", "41-50", "51-60", "61-80"))
